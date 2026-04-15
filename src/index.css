@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+@theme {
+  --color-veyrix-black: #000000;
+  --color-veyrix-white: #FFFFFF;
+}
+
+@layer base {
+  body {
+    @apply antialiased;
+    background-color: var(--color-veyrix-black);
+    color: var(--color-veyrix-white);
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    font-family: 'Inter', sans-serif;
+  }
+}

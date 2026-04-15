@@ -1,18 +1,26 @@
 @import "tailwindcss";
 
 @theme {
-  --color-veyrix-black: #000000;
-  --color-veyrix-white: #FFFFFF;
+  --color-veyrix-bg: #FFFFFF;
+  --color-veyrix-text: #000000;
+  --color-veyrix-gray: #4A4A4A; /* Тот самый графитовый серый */
 }
 
 @layer base {
   body {
+    background-color: var(--color-veyrix-bg);
+    color: var(--color-veyrix-text);
     @apply antialiased;
-    background-color: var(--color-veyrix-black);
-    color: var(--color-veyrix-white);
     margin: 0;
     padding: 0;
-    overflow-x: hidden;
-    font-family: 'Inter', sans-serif;
   }
+}
+
+@keyframes slideLeft {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.animate-slide-left {
+  animation: slideLeft 0.6s cubic-bezier(0.19, 1, 0.22, 1);
 }

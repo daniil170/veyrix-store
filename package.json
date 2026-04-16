@@ -5,11 +5,12 @@
   "type": "module",
   "homepage": "https://daniil170.github.io/veyrix-store/",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build --base=/veyrix-store/",
-    "preview": "vite preview",
-    "deploy": "gh-pages -d dist"
-  },
+  "dev": "vite",
+  "build": "vite build --base=/veyrix-store/",
+  "preview": "vite preview",
+  "predeploy": "npm run build",
+  "deploy": "gh-pages -d dist"
+},
   "dependencies": {
     "@tailwindcss/postcss": "^4.0.0",
     "firebase": "^10.8.0",

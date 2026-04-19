@@ -10,15 +10,20 @@ import {
   query,
   orderBy,
   updateDoc,
+  setDoc,
 } from "firebase/firestore";
 
 const Admin = () => {
+  const [isMaintenance, setIsMaintenance] = useState(false);
   const [tab, setTab] = useState("inventory");
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [collectionsList, setCollectionsList] = useState([]);
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  // Состояния для редактирования
+  const [editingId, setEditingId] = useState(null);
 
   const [newCat, setNewCat] = useState("");
   const [newColl, setNewColl] = useState("");
@@ -40,6 +45,34 @@ const Admin = () => {
 
   const CLOUD_NAME = "dhzkb1t97";
   const UPLOAD_PRESET = "veyrix_uploads";
+
+  // Загружаем текущий статус при старте
+  useEffect(() => {
+    const unsubSettings = onSnapshot(
+      doc(db, "settings", "siteConfig"),
+      (doc) => {
+        if (doc.exists()) {
+          setIsMaintenance(doc.data().isMaintenance);
+        }
+      },
+    );
+    return () => unsubSettings();
+  }, []);
+
+  // Функция переключения
+  const toggleMaintenance = async () => {
+    try {
+      const configRef = doc(db, "settings", "siteConfig");
+      await setDoc(
+        configRef,
+        { isMaintenance: !isMaintenance },
+        { merge: true },
+      );
+      alert(`Maintenance mode ${!isMaintenance ? "ENABLED" : "DISABLED"}`);
+    } catch (e) {
+      alert(e.message);
+    }
+  };
 
   useEffect(() => {
     const qProducts = query(
@@ -69,56 +102,104 @@ const Admin = () => {
     };
   }, []);
 
+  // --- ЛОГИКА ТОВАРОВ ---
+
+  const startEdit = (p) => {
+    setEditingId(p.id);
+    setFormData({
+      name: p.name,
+      price: p.price,
+      oldPrice: p.oldPrice || "",
+      collection: p.collection || "",
+      category: p.category || "",
+      details: p.details || "",
+      etsyUrl: p.etsyUrl || "",
+      sizes: p.sizes || "",
+      status: p.status || "available",
+    });
+    setTab("add");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setFormData({
+      name: "",
+      price: "",
+      oldPrice: "",
+      collection: "",
+      category: "",
+      details: "",
+      etsyUrl: "",
+      sizes: "",
+      status: "available",
+    });
+    setFiles([]);
+    setTab("inventory");
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (files.length === 0) return alert("Please select at least one image!");
     setLoading(true);
 
     try {
-      const uploadedUrls = [];
-      for (const file of files) {
-        const data = new FormData();
-        data.append("file", file);
-        data.append("upload_preset", UPLOAD_PRESET);
-        const resp = await fetch(
-          `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,
-          {
-            method: "POST",
-            body: data,
-          },
-        );
-        const imgData = await resp.json();
-        uploadedUrls.push(imgData.secure_url);
+      let finalImages = editingId
+        ? products.find((p) => p.id === editingId).images
+        : [];
+      let finalMainImage = editingId
+        ? products.find((p) => p.id === editingId).image
+        : "";
+
+      // Если выбраны новые файлы — загружаем их
+      if (files.length > 0) {
+        const uploadedUrls = [];
+        for (const file of files) {
+          const data = new FormData();
+          data.append("file", file);
+          data.append("upload_preset", UPLOAD_PRESET);
+          const resp = await fetch(
+            `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,
+            {
+              method: "POST",
+              body: data,
+            },
+          );
+          const imgData = await resp.json();
+          uploadedUrls.push(imgData.secure_url);
+        }
+        finalImages = uploadedUrls;
+        finalMainImage = uploadedUrls[0];
       }
 
-      await addDoc(collection(db, "products"), {
+      const productData = {
         ...formData,
         price: Number(formData.price),
         oldPrice: formData.oldPrice ? Number(formData.oldPrice) : null,
-        image: uploadedUrls[0],
-        images: uploadedUrls,
-        createdAt: Timestamp.now(),
-      });
+        image: finalMainImage,
+        images: finalImages,
+        updatedAt: Timestamp.now(),
+      };
 
-      alert("Successfully Published!");
-      setFormData({
-        name: "",
-        price: "",
-        oldPrice: "",
-        collection: "",
-        category: "",
-        details: "",
-        etsyUrl: "",
-        sizes: "",
-        status: "available",
-      });
-      setFiles([]);
-      setTab("inventory");
+      if (editingId) {
+        await updateDoc(doc(db, "products", editingId), productData);
+        alert("Piece Updated Successfully!");
+      } else {
+        if (files.length === 0) throw new Error("Please select images!");
+        await addDoc(collection(db, "products"), {
+          ...productData,
+          createdAt: Timestamp.now(),
+        });
+        alert("Published Successfully!");
+      }
+
+      cancelEdit();
     } catch (error) {
       alert("Error: " + error.message);
     }
     setLoading(false);
   };
+
+  // --- ЛОГИКА СТРУКТУРЫ ---
 
   const addCategory = async () => {
     if (!newCat) return;
@@ -132,8 +213,57 @@ const Admin = () => {
     setNewColl("");
   };
 
+  const renameItem = async (colName, id, oldName) => {
+    const newName = prompt(`Rename "${oldName}" to:`, oldName);
+    if (!newName || newName === oldName) return;
+
+    setLoading(true);
+    try {
+      // 1. Обновляем саму категорию/коллекцию
+      await updateDoc(doc(db, colName, id), { name: newName });
+
+      // 2. Обновляем все товары, привязанные к этому имени
+      const linkedProducts = products.filter((p) =>
+        colName === "categories"
+          ? p.category === oldName
+          : p.collection === oldName,
+      );
+
+      for (const p of linkedProducts) {
+        const field =
+          colName === "categories"
+            ? { category: newName }
+            : { collection: newName };
+        await updateDoc(doc(db, "products", p.id), field);
+      }
+      alert("Renamed! All linked products updated.");
+    } catch (e) {
+      alert(e.message);
+    }
+    setLoading(false);
+  };
+
   const deleteItem = async (colName, id) => {
-    if (window.confirm("Delete this item?")) {
+    let itemName = "";
+    if (colName === "categories") {
+      itemName = categories.find((c) => c.id === id)?.name;
+    } else if (colName === "collections") {
+      itemName = collectionsList.find((c) => c.id === id)?.name;
+    }
+
+    const hasLinkedProducts = products.some((p) => {
+      if (colName === "categories") return p.category === itemName;
+      if (colName === "collections") return p.collection === itemName;
+      return false;
+    });
+
+    if (hasLinkedProducts) {
+      return alert(
+        `CANNOT DELETE: This ${colName} is still linked to products.`,
+      );
+    }
+
+    if (window.confirm(`Remove this ${colName}?`)) {
       await deleteDoc(doc(db, colName, id));
     }
   };
@@ -155,13 +285,17 @@ const Admin = () => {
   };
 
   return (
-    <div className="min-h-screen bg-white pt-24 md:pt-40 px-4 md:px-8 max-w-[1000px] mx-auto font-mono pb-20 md:pb-40 text-black">
-      <div className="flex gap-6 md:gap-12 mb-10 md:mb-16 border-b border-black pb-6 overflow-x-auto scrollbar-hide">
+    <div className="min-h-screen bg-white pt-24 md:pt-40 px-4 md:px-8 max-w-[1000px] mx-auto font-mono pb-20 text-black">
+      {/* TABS */}
+      <div className="flex gap-6 md:gap-12 mb-10 border-b border-black pb-6 overflow-x-auto scrollbar-hide">
         {["inventory", "add", "structure"].map((t) => (
           <button
             key={t}
-            onClick={() => setTab(t)}
-            className={`text-[11px] md:text-[12px] uppercase tracking-[0.3em] md:tracking-[0.4em] whitespace-nowrap transition-all ${
+            onClick={() => {
+              setTab(t);
+              if (t !== "add") setEditingId(null);
+            }}
+            className={`text-[11px] uppercase tracking-[0.4em] transition-all ${
               tab === t
                 ? "font-bold border-b-2 border-black pb-6 -mb-[26px]"
                 : "text-neutral-400 hover:text-black"
@@ -170,43 +304,57 @@ const Admin = () => {
             {t === "inventory"
               ? `Inventory (${products.length})`
               : t === "add"
-                ? "+ New Entry"
+                ? editingId
+                  ? "Edit Mode"
+                  : "+ New Entry"
                 : "Structure"}
           </button>
         ))}
       </div>
 
+      {/* ADD / EDIT FORM */}
       {tab === "add" && (
         <form
           onSubmit={handleSubmit}
-          className="flex flex-col gap-8 md:gap-10 animate-fadeIn"
+          className="flex flex-col gap-8 animate-fadeIn"
         >
+          {editingId && (
+            <div className="bg-neutral-50 p-4 border-l-4 border-black text-[10px] uppercase tracking-widest flex justify-between items-center">
+              <span>Editing: {formData.name}</span>
+              <button onClick={cancelEdit} className="underline">
+                Cancel Edit
+              </button>
+            </div>
+          )}
+
           <div className="flex flex-col gap-4">
-            <label className="text-[10px] uppercase tracking-widest text-neutral-400">
-              Media Upload
+            <label className="text-[10px] uppercase text-neutral-400">
+              Media {editingId && "(Select only if changing)"}
             </label>
             <input
               type="file"
               multiple
               onChange={(e) => setFiles(Array.from(e.target.files))}
-              className="text-[11px] border border-dashed border-neutral-300 p-8 cursor-pointer hover:border-black transition-colors w-full"
+              className="text-[11px] border border-dashed border-neutral-300 p-8 w-full"
             />
           </div>
 
           <input
             placeholder="Product Name *"
+            required
             value={formData.name}
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            className="border-b border-neutral-200 py-4 outline-none uppercase text-[14px] focus:border-black w-full transition-all"
+            className="border-b border-neutral-200 py-4 outline-none uppercase text-[14px] focus:border-black"
           />
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <select
               value={formData.category}
+              required
               onChange={(e) =>
                 setFormData({ ...formData, category: e.target.value })
               }
-              className="border-b border-neutral-200 py-4 outline-none text-[11px] uppercase tracking-[0.2em] bg-white focus:border-black"
+              className="border-b border-neutral-200 py-4 text-[11px] uppercase bg-white"
             >
               <option value="">Select Category</option>
               {categories.map((c) => (
@@ -218,10 +366,11 @@ const Admin = () => {
 
             <select
               value={formData.collection}
+              required
               onChange={(e) =>
                 setFormData({ ...formData, collection: e.target.value })
               }
-              className="border-b border-neutral-200 py-4 outline-none text-[11px] uppercase tracking-[0.2em] bg-white focus:border-black"
+              className="border-b border-neutral-200 py-4 text-[11px] uppercase bg-white"
             >
               <option value="">Select Collection</option>
               {collectionsList.map((c) => (
@@ -238,7 +387,7 @@ const Admin = () => {
               onChange={(e) =>
                 setFormData({ ...formData, status: e.target.value })
               }
-              className="border-b border-neutral-200 py-4 outline-none text-[11px] uppercase tracking-[0.2em] bg-white focus:border-black"
+              className="border-b border-neutral-200 py-4 text-[11px] uppercase bg-white"
             >
               <option value="available">Status: Available</option>
               <option value="low_stock">Status: Low Stock</option>
@@ -251,19 +400,20 @@ const Admin = () => {
               onChange={(e) =>
                 setFormData({ ...formData, sizes: e.target.value })
               }
-              className="border-b border-neutral-200 py-4 outline-none uppercase text-[14px] w-full focus:border-black"
+              className="border-b border-neutral-200 py-4 uppercase text-[14px]"
             />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <input
               placeholder="Price ($) *"
+              required
               type="number"
               value={formData.price}
               onChange={(e) =>
                 setFormData({ ...formData, price: e.target.value })
               }
-              className="border-b border-neutral-200 py-4 outline-none text-[14px] w-full focus:border-black"
+              className="border-b border-neutral-200 py-4 text-[14px]"
             />
             <input
               placeholder="Old Price (Optional)"
@@ -272,7 +422,7 @@ const Admin = () => {
               onChange={(e) =>
                 setFormData({ ...formData, oldPrice: e.target.value })
               }
-              className="border-b border-neutral-200 py-4 outline-none text-[14px] w-full focus:border-black"
+              className="border-b border-neutral-200 py-4 text-[14px]"
             />
           </div>
 
@@ -282,7 +432,7 @@ const Admin = () => {
             onChange={(e) =>
               setFormData({ ...formData, etsyUrl: e.target.value })
             }
-            className="border-b border-neutral-200 py-4 outline-none text-[14px] w-full focus:border-black"
+            className="border-b border-neutral-200 py-4 text-[14px]"
           />
 
           <textarea
@@ -291,110 +441,127 @@ const Admin = () => {
             onChange={(e) =>
               setFormData({ ...formData, details: e.target.value })
             }
-            className="border border-neutral-200 p-4 h-32 outline-none text-[12px] w-full focus:border-black"
+            className="border border-neutral-200 p-4 h-32 outline-none text-[12px]"
           />
 
           <button
+            type="button"
             disabled={loading}
-            className="bg-black text-white py-6 uppercase text-[11px] tracking-[0.3em] disabled:bg-neutral-300 transition-all w-full shadow-xl hover:bg-neutral-800"
+            onClick={handleSubmit}
+            className="..."
           >
-            {loading ? "Uploading Data..." : "Confirm & Publish"}
+            {loading
+              ? "Processing..."
+              : editingId
+                ? "Save Changes"
+                : "Confirm & Publish"}
           </button>
         </form>
       )}
 
+      {/* STRUCTURE TAB */}
       {tab === "structure" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-12 animate-fadeIn">
-          {/* CATEGORIES CONTROL */}
-          <div>
-            <h3 className="text-[11px] uppercase tracking-[0.4em] mb-8 font-bold border-b border-neutral-100 pb-4">
-              Categories
-            </h3>
-            <div className="flex flex-col gap-4 mb-10">
-              <input
-                value={newCat}
-                onChange={(e) => setNewCat(e.target.value)}
-                placeholder="New Category Name"
-                className="border border-neutral-200 px-4 py-3 outline-none text-[12px] uppercase tracking-widest focus:border-black transition-all"
-              />
-              <button
-                onClick={addCategory}
-                className="bg-black text-white py-3 text-[10px] uppercase tracking-[0.2em] hover:bg-neutral-800 transition-all shadow-lg"
-              >
-                Add Category
-              </button>
-            </div>
-            <div className="flex flex-col gap-2">
-              {categories.map((c) => (
-                <div
-                  key={c.id}
-                  className="flex justify-between items-center bg-neutral-50 px-4 py-3 group min-h-[50px] transition-colors hover:bg-neutral-100"
+        <div className="flex flex-col gap-12 animate-fadeIn">
+          {/* НОВЫЙ БЛОК: ТЕХНИЧЕСКОЕ ОБСЛУЖИВАНИЕ */}
+          <div
+            className={`p-6 border-2 transition-colors duration-500 ${isMaintenance ? "border-orange-500 bg-orange-50" : "border-neutral-100 bg-neutral-50"}`}
+          >
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+              <div>
+                <h3
+                  className={`text-[11px] uppercase tracking-[0.4em] mb-2 font-bold ${isMaintenance ? "text-orange-600" : "text-black"}`}
                 >
-                  <span className="text-[11px] uppercase tracking-widest break-all mr-4">
-                    {c.name}
-                  </span>
-                  <button
-                    onClick={() => deleteItem("categories", c.id)}
-                    className="text-red-500 text-[9px] uppercase tracking-tighter opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity hover:text-red-700 whitespace-nowrap border border-red-100 md:border-none px-2 py-1 md:p-0 bg-white md:bg-transparent"
-                  >
-                    [ Remove ]
-                  </button>
-                </div>
-              ))}
+                  System Control
+                </h3>
+                <p className="text-[10px] uppercase tracking-widest text-neutral-500">
+                  {isMaintenance
+                    ? "Store is currently hidden. Only admins can see the products."
+                    : "Store is live. Public access is enabled."}
+                </p>
+              </div>
+              <button
+                onClick={toggleMaintenance}
+                disabled={loading}
+                className={`px-10 py-4 text-[10px] uppercase font-bold tracking-[0.2em] transition-all ${
+                  isMaintenance
+                    ? "bg-orange-500 text-white shadow-lg shadow-orange-200"
+                    : "bg-black text-white hover:bg-neutral-800"
+                }`}
+              >
+                {isMaintenance ? "Disable Maintenance" : "Enable Maintenance"}
+              </button>
             </div>
           </div>
 
-          {/* COLLECTIONS CONTROL */}
-          <div>
-            <h3 className="text-[11px] uppercase tracking-[0.4em] mb-8 font-bold border-b border-neutral-100 pb-4">
-              Collections
-            </h3>
-            <div className="flex flex-col gap-4 mb-10">
-              <input
-                value={newColl}
-                onChange={(e) => setNewColl(e.target.value)}
-                placeholder="New Collection Name"
-                className="border border-neutral-200 px-4 py-3 outline-none text-[12px] uppercase tracking-widest focus:border-black transition-all"
-              />
-              <button
-                onClick={addCollection}
-                className="bg-black text-white py-3 text-[10px] uppercase tracking-[0.2em] hover:bg-neutral-800 transition-all shadow-lg"
-              >
-                Add Collection
-              </button>
-            </div>
-            <div className="flex flex-col gap-2">
-              {collectionsList.map((c) => (
-                <div
-                  key={c.id}
-                  className="flex justify-between items-center bg-neutral-50 px-4 py-3 group min-h-[50px] transition-colors hover:bg-neutral-100"
-                >
-                  <span className="text-[11px] uppercase tracking-widest break-all mr-4">
-                    {c.name}
-                  </span>
+          {/* ТВОЯ СУЩЕСТВУЮЩАЯ СЕТКА КАТЕГОРИЙ И КОЛЛЕКЦИЙ */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+            {["categories", "collections"].map((col) => (
+              <div key={col}>
+                <h3 className="text-[11px] uppercase tracking-[0.4em] mb-8 font-bold border-b pb-4">
+                  {col}
+                </h3>
+                <div className="flex flex-col gap-4 mb-10">
+                  <input
+                    value={col === "categories" ? newCat : newColl}
+                    onChange={(e) =>
+                      col === "categories"
+                        ? setNewCat(e.target.value)
+                        : setNewColl(e.target.value)
+                    }
+                    placeholder={`New ${col.slice(0, -1)}`}
+                    className="border border-neutral-200 px-4 py-3 text-[12px] uppercase outline-none focus:border-black transition-colors"
+                  />
                   <button
-                    onClick={() => deleteItem("collections", c.id)}
-                    className="text-red-500 text-[9px] uppercase tracking-tighter opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity hover:text-red-700 whitespace-nowrap border border-red-100 md:border-none px-2 py-1 md:p-0 bg-white md:bg-transparent"
+                    onClick={col === "categories" ? addCategory : addCollection}
+                    className="bg-black text-white py-3 text-[10px] uppercase hover:bg-neutral-800 transition-colors"
                   >
-                    [ Remove ]
+                    Add
                   </button>
                 </div>
-              ))}
-            </div>
+                <div className="flex flex-col gap-2">
+                  {(col === "categories" ? categories : collectionsList).map(
+                    (item) => (
+                      <div
+                        key={item.id}
+                        className="flex justify-between items-center bg-neutral-50 px-4 py-3 group hover:bg-neutral-100 transition-colors"
+                      >
+                        <span className="text-[11px] uppercase tracking-widest">
+                          {item.name}
+                        </span>
+                        <div className="flex gap-4">
+                          <button
+                            onClick={() => renameItem(col, item.id, item.name)}
+                            className="text-[9px] uppercase text-blue-500 hover:text-blue-700"
+                          >
+                            [ Rename ]
+                          </button>
+                          <button
+                            onClick={() => deleteItem(col, item.id)}
+                            className="text-[9px] uppercase text-red-500 hover:text-red-700"
+                          >
+                            [ Remove ]
+                          </button>
+                        </div>
+                      </div>
+                    ),
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
+      {/* INVENTORY TAB */}
       {tab === "inventory" && (
         <div className="flex flex-col gap-6 animate-fadeIn">
           <div className="flex flex-wrap gap-4 mb-4 p-4 bg-neutral-50 border border-neutral-100 items-center">
-            <span className="text-[10px] uppercase tracking-widest font-bold text-neutral-400">
-              Filter by:
+            <span className="text-[10px] uppercase font-bold text-neutral-400">
+              Filter:
             </span>
-
             <select
               onChange={(e) => setFilterCat(e.target.value)}
-              className="text-[11px] uppercase tracking-wider border-b border-black bg-transparent outline-none py-1"
+              className="text-[11px] uppercase border-b border-black bg-transparent py-1"
               value={filterCat}
             >
               <option value="">All Categories</option>
@@ -404,10 +571,9 @@ const Admin = () => {
                 </option>
               ))}
             </select>
-
             <select
               onChange={(e) => setFilterColl(e.target.value)}
-              className="text-[11px] uppercase tracking-wider border-b border-black bg-transparent outline-none py-1"
+              className="text-[11px] uppercase border-b border-black bg-transparent py-1"
               value={filterColl}
             >
               <option value="">All Collections</option>
@@ -417,18 +583,6 @@ const Admin = () => {
                 </option>
               ))}
             </select>
-
-            {(filterCat || filterColl) && (
-              <button
-                onClick={() => {
-                  setFilterCat("");
-                  setFilterColl("");
-                }}
-                className="text-[10px] uppercase underline tracking-tighter hover:text-red-500 transition-colors"
-              >
-                Reset Filters
-              </button>
-            )}
           </div>
 
           {products
@@ -437,58 +591,56 @@ const Admin = () => {
             .map((p) => (
               <div
                 key={p.id}
-                className="flex flex-col md:flex-row items-center justify-between border border-neutral-200 p-6 md:p-8 group gap-8 bg-white hover:border-black transition-all shadow-sm"
+                className="flex flex-col md:flex-row items-center justify-between border border-neutral-200 p-6 group gap-8 hover:border-black transition-all"
               >
                 <div className="flex items-center gap-8 w-full md:w-auto">
-                  <div className="w-24 h-32 md:w-32 md:h-40 bg-neutral-100 shrink-0 overflow-hidden shadow-inner">
+                  <div className="w-24 h-32 bg-neutral-100 shrink-0 overflow-hidden">
                     <img
                       src={p.image}
                       className="w-full h-full object-cover"
                       alt=""
                     />
                   </div>
-
                   <div className="flex flex-col gap-3">
-                    <h4 className="text-[16px] md:text-[18px] uppercase tracking-[0.2em] font-bold leading-tight">
+                    <h4 className="text-[16px] uppercase font-bold tracking-widest">
                       {p.name}
                     </h4>
-
-                    <div className="flex flex-col gap-2">
-                      <p className="text-[11px] md:text-[12px] text-neutral-500 uppercase tracking-widest bg-neutral-50 w-fit px-2 py-1">
-                        {p.category || "No Category"} /{" "}
-                        {p.collection || "No Collection"}
-                      </p>
-
-                      <div className="flex items-center gap-4">
-                        <span className="text-[16px] md:text-[18px] font-mono font-medium">
-                          $ {p.price}
-                        </span>
-                        <span
-                          className={`text-[10px] md:text-[11px] uppercase tracking-[0.15em] px-4 py-1.5 rounded-full border-2 font-bold ${
-                            p.status === "available"
-                              ? "text-green-600 border-green-500 bg-green-50"
-                              : p.status === "low_stock"
-                                ? "text-orange-500 border-orange-500 bg-orange-50"
-                                : "text-red-500 border-red-500 bg-red-50"
-                          }`}
-                        >
-                          {p.status ? p.status.replace("_", " ") : "available"}
-                        </span>
-                      </div>
+                    <p className="text-[10px] text-neutral-500 uppercase tracking-widest">
+                      {p.category} / {p.collection}
+                    </p>
+                    <div className="flex items-center gap-4">
+                      <span className="text-[16px] font-mono">$ {p.price}</span>
+                      <span
+                        className={`text-[10px] uppercase px-3 py-1 border font-bold ${
+                          p.status === "available"
+                            ? "text-green-600 border-green-500"
+                            : p.status === "low_stock"
+                              ? "text-orange-500 border-orange-500"
+                              : "text-red-500 border-red-500"
+                        }`}
+                      >
+                        {p.status?.replace("_", " ")}
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
+                <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+                  <button
+                    onClick={() => startEdit(p)}
+                    className="text-[10px] border border-black px-6 py-3 hover:bg-black hover:text-white transition-all uppercase font-bold"
+                  >
+                    Edit
+                  </button>
                   <button
                     onClick={() => toggleStatus(p.id, p.status || "available")}
-                    className="flex-1 md:flex-none text-[11px] md:text-[12px] border-2 border-black px-8 py-4 md:py-3 hover:bg-black hover:text-white transition-all uppercase tracking-[0.2em] font-bold"
+                    className="text-[10px] border border-black px-6 py-3 hover:bg-black hover:text-white transition-all uppercase font-bold"
                   >
-                    Next Status
+                    Status
                   </button>
                   <button
                     onClick={() => deleteProduct(p.id)}
-                    className="flex-1 md:flex-none text-[11px] md:text-[12px] text-red-500 border-2 border-red-500 px-8 py-4 md:py-3 hover:bg-red-500 hover:text-white transition-all uppercase tracking-[0.2em] font-bold"
+                    className="text-[10px] border border-red-500 text-red-500 px-6 py-3 hover:bg-red-500 hover:text-white transition-all uppercase font-bold"
                   >
                     Remove
                   </button>

@@ -15,10 +15,17 @@ import {
   doc,
   getDoc,
   setDoc,
+  getDocs, // Добавлено для одноразовой загрузки
 } from "firebase/firestore";
 import Header from "./components/Header";
 import Hero from "./components/Hero";
 import Admin from "./components/Admin";
+
+// ФУНКЦИЯ ОПТИМИЗАЦИИ КАРТИНОК CLOUDINARY
+const optimizeImage = (url) => {
+  if (!url || !url.includes("cloudinary.com")) return url;
+  return url.replace("/upload/", "/upload/q_auto,f_auto,w_800/");
+};
 
 function App() {
   // СОСТОЯНИЯ АВТОРИЗАЦИИ
@@ -56,6 +63,7 @@ function App() {
 
   // ФУНКЦИЯ ТЕХ. ОБСЛУЖИВАНИЯ
   const [isMaintenance, setIsMaintenance] = useState(false);
+  const [heroVideo, setHeroVideo] = useState("");
 
   // 1. СЕКРЕТНЫЕ КЛАВИШИ
   useEffect(() => {
@@ -69,7 +77,11 @@ function App() {
   // Слушатель тех. обслуживания
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "settings", "siteConfig"), (docSnap) => {
-      if (docSnap.exists()) setIsMaintenance(docSnap.data().isMaintenance);
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setIsMaintenance(data.isMaintenance || false);
+        setHeroVideo(data.heroVideo || "");
+      }
     });
     return () => unsub();
   }, []);
@@ -89,19 +101,59 @@ function App() {
     return () => unsubscribe();
   }, [view]);
 
-  // 3. ЗАГРУЗКА ДАННЫХ
+  // 3. ЗАГРУЗКА ДАННЫХ С УМНЫМ КЭШИРОВАНИЕМ
   useEffect(() => {
-    const q = query(collection(db, "products"), orderBy("createdAt", "desc"));
-    const unsubProducts = onSnapshot(q, (snapshot) => {
-      setProducts(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-      setLoading(false);
-    });
+    const fetchData = async () => {
+      try {
+        const cachedProducts = localStorage.getItem("veyrix_products");
+        const cacheTimestamp = localStorage.getItem("veyrix_cache_time");
+        const now = new Date().getTime();
 
-    const unsubCats = onSnapshot(collection(db, "categories"), (snapshot) => {
-      setCategories(
-        snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
-      );
-    });
+        // Кэш живет 4 часа (1000 мс * 60 сек * 60 мин * 4 ч)
+        const CACHE_LIFETIME = 1000 * 60 * 60 * 4;
+
+        if (
+          cachedProducts &&
+          cacheTimestamp &&
+          now - parseInt(cacheTimestamp) < CACHE_LIFETIME
+        ) {
+          // Берем из памяти браузера (0 чтений базы)
+          setProducts(JSON.parse(cachedProducts));
+          setLoading(false);
+        } else {
+          // Качаем из базы и сохраняем в память
+          const q = query(
+            collection(db, "products"),
+            orderBy("createdAt", "desc"),
+          );
+          const snapshot = await getDocs(q);
+          const freshProducts = snapshot.docs.map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          }));
+
+          localStorage.setItem(
+            "veyrix_products",
+            JSON.stringify(freshProducts),
+          );
+          localStorage.setItem("veyrix_cache_time", now.toString());
+
+          setProducts(freshProducts);
+          setLoading(false);
+        }
+
+        // Категории весят копейки, качаем их просто один раз без слушателя
+        const catSnapshot = await getDocs(collection(db, "categories"));
+        setCategories(
+          catSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+        );
+      } catch (error) {
+        console.error("Fetch error:", error);
+        setLoading(false);
+      }
+    };
+
+    fetchData();
 
     const handleHashChange = () => {
       const hash = window.location.hash;
@@ -122,8 +174,6 @@ function App() {
     window.addEventListener("hashchange", handleHashChange);
     handleHashChange();
     return () => {
-      unsubProducts();
-      unsubCats();
       window.removeEventListener("hashchange", handleHashChange);
     };
   }, []);
@@ -344,7 +394,7 @@ function App() {
             }}
             isArchiveMode={isArchiveMode}
           />
-          <Hero />
+          <Hero videoUrl={heroVideo} />
           <section
             id="catalog"
             className="max-w-[1400px] mx-auto py-16 md:py-32 px-4 md:px-6 min-h-[50vh]"
@@ -444,8 +494,9 @@ function App() {
                         </div>
                       </div>
                     )}
+                    {/* ТУТ ИСПОЛЬЗУЕТСЯ ОПТИМИЗАЦИЯ КАРТИНКИ */}
                     <img
-                      src={product.image}
+                      src={optimizeImage(product.image)}
                       className="w-full h-full object-cover transition-transform duration-[2s] group-hover:scale-105"
                       alt=""
                     />
@@ -479,7 +530,6 @@ function App() {
         </>
       ) : (
         <div className="relative">
-          {/* Исправленное приветствие админа */}
           {user && adminData && (
             <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[500] text-center hidden md:block">
               <p className="text-[10px] uppercase tracking-[0.3em] font-mono text-neutral-400">
@@ -515,8 +565,9 @@ function App() {
               Close [x]
             </button>
             <div className="w-full md:w-3/5 bg-neutral-100 flex flex-col h-[55vh] md:h-auto shrink-0">
+              {/* ТУТ ТОЖЕ ИСПОЛЬЗУЕТСЯ ОПТИМИЗАЦИЯ КАРТИНКИ */}
               <img
-                src={activeImage || selectedProduct.image}
+                src={optimizeImage(activeImage || selectedProduct.image)}
                 className="w-full h-full object-cover"
                 alt=""
               />

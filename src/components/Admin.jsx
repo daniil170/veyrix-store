@@ -15,6 +15,8 @@ import {
 
 const Admin = () => {
   const [isMaintenance, setIsMaintenance] = useState(false);
+  const [heroVideo, setHeroVideo] = useState(""); // НОВОЕ: ссылка на видео
+  const [videoFile, setVideoFile] = useState(null); // НОВОЕ: файл видео
   const [tab, setTab] = useState("inventory");
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -22,12 +24,9 @@ const Admin = () => {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Состояния для редактирования
   const [editingId, setEditingId] = useState(null);
-
   const [newCat, setNewCat] = useState("");
   const [newColl, setNewColl] = useState("");
-
   const [filterCat, setFilterCat] = useState("");
   const [filterColl, setFilterColl] = useState("");
 
@@ -46,20 +45,19 @@ const Admin = () => {
   const CLOUD_NAME = "dhzkb1t97";
   const UPLOAD_PRESET = "veyrix_uploads";
 
-  // Загружаем текущий статус при старте
   useEffect(() => {
     const unsubSettings = onSnapshot(
       doc(db, "settings", "siteConfig"),
-      (doc) => {
-        if (doc.exists()) {
-          setIsMaintenance(doc.data().isMaintenance);
+      (docSnap) => {
+        if (docSnap.exists()) {
+          setIsMaintenance(docSnap.data().isMaintenance);
+          setHeroVideo(docSnap.data().heroVideo || ""); // Загружаем видео из базы
         }
       },
     );
     return () => unsubSettings();
   }, []);
 
-  // Функция переключения
   const toggleMaintenance = async () => {
     try {
       const configRef = doc(db, "settings", "siteConfig");
@@ -68,9 +66,42 @@ const Admin = () => {
         { isMaintenance: !isMaintenance },
         { merge: true },
       );
-      alert(`Maintenance mode ${!isMaintenance ? "ENABLED" : "DISABLED"}`);
     } catch (e) {
       alert(e.message);
+    }
+  };
+
+  // НОВАЯ ФУНКЦИЯ: Загрузка видео
+  const handleVideoUpload = async () => {
+    if (!videoFile) return alert("Please select a video file!");
+    setLoading(true);
+    try {
+      const data = new FormData();
+      data.append("file", videoFile);
+      data.append("upload_preset", UPLOAD_PRESET);
+
+      const resp = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/video/upload`,
+        { method: "POST", body: data },
+      );
+      const videoData = await resp.json();
+
+      await updateDoc(doc(db, "settings", "siteConfig"), {
+        heroVideo: videoData.secure_url,
+      });
+
+      alert("Hero video updated!");
+      setVideoFile(null);
+    } catch (e) {
+      alert("Video Error: " + e.message);
+    }
+    setLoading(false);
+  };
+
+  // НОВАЯ ФУНКЦИЯ: Удаление видео
+  const deleteVideo = async () => {
+    if (window.confirm("Remove hero video?")) {
+      await updateDoc(doc(db, "settings", "siteConfig"), { heroVideo: "" });
     }
   };
 
@@ -82,27 +113,22 @@ const Admin = () => {
     const unsubProducts = onSnapshot(qProducts, (snapshot) => {
       setProducts(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
     });
-
     const unsubCats = onSnapshot(collection(db, "categories"), (snapshot) => {
       setCategories(
         snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
       );
     });
-
     const unsubColls = onSnapshot(collection(db, "collections"), (snapshot) => {
       setCollectionsList(
         snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
       );
     });
-
     return () => {
       unsubProducts();
       unsubCats();
       unsubColls();
     };
   }, []);
-
-  // --- ЛОГИКА ТОВАРОВ ---
 
   const startEdit = (p) => {
     setEditingId(p.id);
@@ -141,7 +167,6 @@ const Admin = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-
     try {
       let finalImages = editingId
         ? products.find((p) => p.id === editingId).images
@@ -150,7 +175,6 @@ const Admin = () => {
         ? products.find((p) => p.id === editingId).image
         : "";
 
-      // Если выбраны новые файлы — загружаем их
       if (files.length > 0) {
         const uploadedUrls = [];
         for (const file of files) {
@@ -182,24 +206,19 @@ const Admin = () => {
 
       if (editingId) {
         await updateDoc(doc(db, "products", editingId), productData);
-        alert("Piece Updated Successfully!");
       } else {
         if (files.length === 0) throw new Error("Please select images!");
         await addDoc(collection(db, "products"), {
           ...productData,
           createdAt: Timestamp.now(),
         });
-        alert("Published Successfully!");
       }
-
       cancelEdit();
     } catch (error) {
       alert("Error: " + error.message);
     }
     setLoading(false);
   };
-
-  // --- ЛОГИКА СТРУКТУРЫ ---
 
   const addCategory = async () => {
     if (!newCat) return;
@@ -216,19 +235,14 @@ const Admin = () => {
   const renameItem = async (colName, id, oldName) => {
     const newName = prompt(`Rename "${oldName}" to:`, oldName);
     if (!newName || newName === oldName) return;
-
     setLoading(true);
     try {
-      // 1. Обновляем саму категорию/коллекцию
       await updateDoc(doc(db, colName, id), { name: newName });
-
-      // 2. Обновляем все товары, привязанные к этому имени
       const linkedProducts = products.filter((p) =>
         colName === "categories"
           ? p.category === oldName
           : p.collection === oldName,
       );
-
       for (const p of linkedProducts) {
         const field =
           colName === "categories"
@@ -236,7 +250,6 @@ const Admin = () => {
             : { collection: newName };
         await updateDoc(doc(db, "products", p.id), field);
       }
-      alert("Renamed! All linked products updated.");
     } catch (e) {
       alert(e.message);
     }
@@ -244,34 +257,26 @@ const Admin = () => {
   };
 
   const deleteItem = async (colName, id) => {
-    let itemName = "";
-    if (colName === "categories") {
-      itemName = categories.find((c) => c.id === id)?.name;
-    } else if (colName === "collections") {
-      itemName = collectionsList.find((c) => c.id === id)?.name;
-    }
-
-    const hasLinkedProducts = products.some((p) => {
-      if (colName === "categories") return p.category === itemName;
-      if (colName === "collections") return p.collection === itemName;
-      return false;
-    });
-
-    if (hasLinkedProducts) {
+    let itemName =
+      colName === "categories"
+        ? categories.find((c) => c.id === id)?.name
+        : collectionsList.find((c) => c.id === id)?.name;
+    const hasLinkedProducts = products.some((p) =>
+      colName === "categories"
+        ? p.category === itemName
+        : p.collection === itemName,
+    );
+    if (hasLinkedProducts)
       return alert(
         `CANNOT DELETE: This ${colName} is still linked to products.`,
       );
-    }
-
-    if (window.confirm(`Remove this ${colName}?`)) {
+    if (window.confirm(`Remove this ${colName}?`))
       await deleteDoc(doc(db, colName, id));
-    }
   };
 
   const deleteProduct = async (id) => {
-    if (window.confirm("Are you sure you want to delete this piece?")) {
+    if (window.confirm("Are you sure?"))
       await deleteDoc(doc(db, "products", id));
-    }
   };
 
   const toggleStatus = async (id, currentStatus) => {
@@ -295,11 +300,7 @@ const Admin = () => {
               setTab(t);
               if (t !== "add") setEditingId(null);
             }}
-            className={`text-[11px] uppercase tracking-[0.4em] transition-all ${
-              tab === t
-                ? "font-bold border-b-2 border-black pb-6 -mb-[26px]"
-                : "text-neutral-400 hover:text-black"
-            }`}
+            className={`text-[11px] uppercase tracking-[0.4em] transition-all ${tab === t ? "font-bold border-b-2 border-black pb-6 -mb-[26px]" : "text-neutral-400 hover:text-black"}`}
           >
             {t === "inventory"
               ? `Inventory (${products.length})`
@@ -312,7 +313,6 @@ const Admin = () => {
         ))}
       </div>
 
-      {/* ADD / EDIT FORM */}
       {tab === "add" && (
         <form
           onSubmit={handleSubmit}
@@ -321,12 +321,11 @@ const Admin = () => {
           {editingId && (
             <div className="bg-neutral-50 p-4 border-l-4 border-black text-[10px] uppercase tracking-widest flex justify-between items-center">
               <span>Editing: {formData.name}</span>
-              <button onClick={cancelEdit} className="underline">
+              <button type="button" onClick={cancelEdit} className="underline">
                 Cancel Edit
               </button>
             </div>
           )}
-
           <div className="flex flex-col gap-4">
             <label className="text-[10px] uppercase text-neutral-400">
               Media {editingId && "(Select only if changing)"}
@@ -338,7 +337,6 @@ const Admin = () => {
               className="text-[11px] border border-dashed border-neutral-300 p-8 w-full"
             />
           </div>
-
           <input
             placeholder="Product Name *"
             required
@@ -346,7 +344,6 @@ const Admin = () => {
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
             className="border-b border-neutral-200 py-4 outline-none uppercase text-[14px] focus:border-black"
           />
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <select
               value={formData.category}
@@ -363,7 +360,6 @@ const Admin = () => {
                 </option>
               ))}
             </select>
-
             <select
               value={formData.collection}
               required
@@ -380,7 +376,6 @@ const Admin = () => {
               ))}
             </select>
           </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <select
               value={formData.status}
@@ -393,7 +388,6 @@ const Admin = () => {
               <option value="low_stock">Status: Low Stock</option>
               <option value="sold_out">Status: Sold Out</option>
             </select>
-
             <input
               placeholder="Sizes (S, M, L, XL)"
               value={formData.sizes}
@@ -403,7 +397,6 @@ const Admin = () => {
               className="border-b border-neutral-200 py-4 uppercase text-[14px]"
             />
           </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <input
               placeholder="Price ($) *"
@@ -425,7 +418,6 @@ const Admin = () => {
               className="border-b border-neutral-200 py-4 text-[14px]"
             />
           </div>
-
           <input
             placeholder="Etsy URL"
             value={formData.etsyUrl}
@@ -434,7 +426,6 @@ const Admin = () => {
             }
             className="border-b border-neutral-200 py-4 text-[14px]"
           />
-
           <textarea
             placeholder="Product Details"
             value={formData.details}
@@ -443,12 +434,10 @@ const Admin = () => {
             }
             className="border border-neutral-200 p-4 h-32 outline-none text-[12px]"
           />
-
           <button
-            type="button"
+            type="submit"
             disabled={loading}
-            onClick={handleSubmit}
-            className="..."
+            className="bg-black text-white py-4 uppercase tracking-widest text-[12px] hover:bg-neutral-800 transition-colors"
           >
             {loading
               ? "Processing..."
@@ -459,10 +448,46 @@ const Admin = () => {
         </form>
       )}
 
-      {/* STRUCTURE TAB */}
       {tab === "structure" && (
         <div className="flex flex-col gap-12 animate-fadeIn">
-          {/* НОВЫЙ БЛОК: ТЕХНИЧЕСКОЕ ОБСЛУЖИВАНИЕ */}
+          {/* НОВЫЙ БЛОК: УПРАВЛЕНИЕ ВИДЕО */}
+          <div className="p-6 border-2 border-neutral-100 bg-neutral-50">
+            <h3 className="text-[11px] uppercase tracking-[0.4em] mb-4 font-bold">
+              Hero Video Control
+            </h3>
+            {heroVideo ? (
+              <div className="space-y-4">
+                <video
+                  src={heroVideo}
+                  className="w-full max-h-40 object-cover"
+                  muted
+                />
+                <button
+                  onClick={deleteVideo}
+                  className="text-[10px] text-red-500 uppercase font-bold"
+                >
+                  [ Remove Video ]
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={(e) => setVideoFile(e.target.files[0])}
+                  className="text-[11px] border border-dashed border-neutral-300 p-4 w-full"
+                />
+                <button
+                  onClick={handleVideoUpload}
+                  disabled={loading || !videoFile}
+                  className="bg-black text-white py-3 text-[10px] uppercase"
+                >
+                  {loading ? "Uploading..." : "Upload New Video"}
+                </button>
+              </div>
+            )}
+          </div>
+
           <div
             className={`p-6 border-2 transition-colors duration-500 ${isMaintenance ? "border-orange-500 bg-orange-50" : "border-neutral-100 bg-neutral-50"}`}
           >
@@ -475,25 +500,20 @@ const Admin = () => {
                 </h3>
                 <p className="text-[10px] uppercase tracking-widest text-neutral-500">
                   {isMaintenance
-                    ? "Store is currently hidden. Only admins can see the products."
-                    : "Store is live. Public access is enabled."}
+                    ? "Store is currently hidden."
+                    : "Store is live."}
                 </p>
               </div>
               <button
                 onClick={toggleMaintenance}
                 disabled={loading}
-                className={`px-10 py-4 text-[10px] uppercase font-bold tracking-[0.2em] transition-all ${
-                  isMaintenance
-                    ? "bg-orange-500 text-white shadow-lg shadow-orange-200"
-                    : "bg-black text-white hover:bg-neutral-800"
-                }`}
+                className={`px-10 py-4 text-[10px] uppercase font-bold tracking-[0.2em] transition-all ${isMaintenance ? "bg-orange-500 text-white" : "bg-black text-white"}`}
               >
                 {isMaintenance ? "Disable Maintenance" : "Enable Maintenance"}
               </button>
             </div>
           </div>
 
-          {/* ТВОЯ СУЩЕСТВУЮЩАЯ СЕТКА КАТЕГОРИЙ И КОЛЛЕКЦИЙ */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
             {["categories", "collections"].map((col) => (
               <div key={col}>
@@ -509,11 +529,11 @@ const Admin = () => {
                         : setNewColl(e.target.value)
                     }
                     placeholder={`New ${col.slice(0, -1)}`}
-                    className="border border-neutral-200 px-4 py-3 text-[12px] uppercase outline-none focus:border-black transition-colors"
+                    className="border border-neutral-200 px-4 py-3 text-[12px] uppercase outline-none"
                   />
                   <button
                     onClick={col === "categories" ? addCategory : addCollection}
-                    className="bg-black text-white py-3 text-[10px] uppercase hover:bg-neutral-800 transition-colors"
+                    className="bg-black text-white py-3 text-[10px] uppercase"
                   >
                     Add
                   </button>
@@ -523,7 +543,7 @@ const Admin = () => {
                     (item) => (
                       <div
                         key={item.id}
-                        className="flex justify-between items-center bg-neutral-50 px-4 py-3 group hover:bg-neutral-100 transition-colors"
+                        className="flex justify-between items-center bg-neutral-50 px-4 py-3"
                       >
                         <span className="text-[11px] uppercase tracking-widest">
                           {item.name}
@@ -531,13 +551,13 @@ const Admin = () => {
                         <div className="flex gap-4">
                           <button
                             onClick={() => renameItem(col, item.id, item.name)}
-                            className="text-[9px] uppercase text-blue-500 hover:text-blue-700"
+                            className="text-[9px] uppercase text-blue-500"
                           >
                             [ Rename ]
                           </button>
                           <button
                             onClick={() => deleteItem(col, item.id)}
-                            className="text-[9px] uppercase text-red-500 hover:text-red-700"
+                            className="text-[9px] uppercase text-red-500"
                           >
                             [ Remove ]
                           </button>
@@ -552,7 +572,6 @@ const Admin = () => {
         </div>
       )}
 
-      {/* INVENTORY TAB */}
       {tab === "inventory" && (
         <div className="flex flex-col gap-6 animate-fadeIn">
           <div className="flex flex-wrap gap-4 mb-4 p-4 bg-neutral-50 border border-neutral-100 items-center">
@@ -584,7 +603,6 @@ const Admin = () => {
               ))}
             </select>
           </div>
-
           {products
             .filter((p) => (filterCat ? p.category === filterCat : true))
             .filter((p) => (filterColl ? p.collection === filterColl : true))
@@ -611,36 +629,29 @@ const Admin = () => {
                     <div className="flex items-center gap-4">
                       <span className="text-[16px] font-mono">$ {p.price}</span>
                       <span
-                        className={`text-[10px] uppercase px-3 py-1 border font-bold ${
-                          p.status === "available"
-                            ? "text-green-600 border-green-500"
-                            : p.status === "low_stock"
-                              ? "text-orange-500 border-orange-500"
-                              : "text-red-500 border-red-500"
-                        }`}
+                        className={`text-[10px] uppercase px-3 py-1 border font-bold ${p.status === "available" ? "text-green-600 border-green-500" : p.status === "low_stock" ? "text-orange-500 border-orange-500" : "text-red-500 border-red-500"}`}
                       >
                         {p.status?.replace("_", " ")}
                       </span>
                     </div>
                   </div>
                 </div>
-
                 <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
                   <button
                     onClick={() => startEdit(p)}
-                    className="text-[10px] border border-black px-6 py-3 hover:bg-black hover:text-white transition-all uppercase font-bold"
+                    className="text-[10px] border border-black px-6 py-3 uppercase font-bold"
                   >
                     Edit
                   </button>
                   <button
                     onClick={() => toggleStatus(p.id, p.status || "available")}
-                    className="text-[10px] border border-black px-6 py-3 hover:bg-black hover:text-white transition-all uppercase font-bold"
+                    className="text-[10px] border border-black px-6 py-3 uppercase font-bold"
                   >
                     Status
                   </button>
                   <button
                     onClick={() => deleteProduct(p.id)}
-                    className="text-[10px] border border-red-500 text-red-500 px-6 py-3 hover:bg-red-500 hover:text-white transition-all uppercase font-bold"
+                    className="text-[10px] border border-red-500 text-red-500 px-6 py-3 uppercase font-bold"
                   >
                     Remove
                   </button>

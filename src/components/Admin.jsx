@@ -42,8 +42,8 @@ const Admin = () => {
     status: "available",
   });
 
-  const CLOUD_NAME = "dhzkb1t97";
-  const UPLOAD_PRESET = "veyrix_uploads";
+  const CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
+  const UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
 
   // СЛУШАТЕЛИ (ОБНОВЛЯЮТ АДМИНКУ ТОЖЕ САМИ)
   useEffect(() => {
@@ -282,7 +282,7 @@ const Admin = () => {
           : "available";
     await updateDoc(doc(db, "products", id), { status: nextStatus });
   };
-  
+
   return (
     <div className="min-h-screen bg-white pt-24 md:pt-40 px-4 md:px-8 max-w-[1000px] mx-auto font-mono pb-20 text-black">
       {/* TABS */}

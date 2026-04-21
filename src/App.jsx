@@ -39,7 +39,7 @@ function App() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
 
-  const REGISTRATION_KEY = "g33k3d@th3funct1on";
+  const REGISTRATION_KEY = import.meta.env.VITE_REGISTRATION_KEY;
 
   // СОСТОЯНИЯ МАГАЗИНА
   const [products, setProducts] = useState([]);

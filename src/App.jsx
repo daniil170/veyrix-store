@@ -617,12 +617,14 @@ function App() {
                   href={selectedProduct.etsyUrl || "#"}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center justify-center gap-4 w-fit min-w-[140px] mx-auto py-2.5 px-6 rounded-lg bg-black text-white hover:scale-[1.03] shadow-lg"
+                  className="flex items-center justify-center gap-2 w-fit min-w-[140px] mx-auto py-2.5 px-6 rounded-lg bg-black text-white hover:scale-[1.03] shadow-lg"
                 >
                   <span className="text-[#F1641E] text-xl font-serif font-bold">
                     E
                   </span>
-                  <span className="text-white text-sm lowercase">etsy</span>
+                  <span className="text-white text-[10px] uppercase tracking-widest font-bold">
+                    Buy via Etsy
+                  </span>
                 </a>
               )}
             </div>

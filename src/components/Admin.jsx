@@ -15,8 +15,8 @@ import {
 
 const Admin = () => {
   const [isMaintenance, setIsMaintenance] = useState(false);
-  const [heroVideo, setHeroVideo] = useState(""); // НОВОЕ: ссылка на видео
-  const [videoFile, setVideoFile] = useState(null); // НОВОЕ: файл видео
+  const [heroVideo, setHeroVideo] = useState("");
+  const [videoFile, setVideoFile] = useState(null);
   const [tab, setTab] = useState("inventory");
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -45,17 +45,44 @@ const Admin = () => {
   const CLOUD_NAME = "dhzkb1t97";
   const UPLOAD_PRESET = "veyrix_uploads";
 
+  // СЛУШАТЕЛИ (ОБНОВЛЯЮТ АДМИНКУ ТОЖЕ САМИ)
   useEffect(() => {
     const unsubSettings = onSnapshot(
       doc(db, "settings", "siteConfig"),
       (docSnap) => {
         if (docSnap.exists()) {
           setIsMaintenance(docSnap.data().isMaintenance);
-          setHeroVideo(docSnap.data().heroVideo || ""); // Загружаем видео из базы
+          setHeroVideo(docSnap.data().heroVideo || "");
         }
       },
     );
-    return () => unsubSettings();
+
+    const qProducts = query(
+      collection(db, "products"),
+      orderBy("createdAt", "desc"),
+    );
+    const unsubProducts = onSnapshot(qProducts, (snapshot) => {
+      setProducts(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+    });
+
+    const unsubCats = onSnapshot(collection(db, "categories"), (snapshot) => {
+      setCategories(
+        snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+      );
+    });
+
+    const unsubColls = onSnapshot(collection(db, "collections"), (snapshot) => {
+      setCollectionsList(
+        snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+      );
+    });
+
+    return () => {
+      unsubSettings();
+      unsubProducts();
+      unsubCats();
+      unsubColls();
+    };
   }, []);
 
   const toggleMaintenance = async () => {
@@ -71,7 +98,6 @@ const Admin = () => {
     }
   };
 
-  // НОВАЯ ФУНКЦИЯ: Загрузка видео
   const handleVideoUpload = async () => {
     if (!videoFile) return alert("Please select a video file!");
     setLoading(true);
@@ -79,17 +105,14 @@ const Admin = () => {
       const data = new FormData();
       data.append("file", videoFile);
       data.append("upload_preset", UPLOAD_PRESET);
-
       const resp = await fetch(
         `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/video/upload`,
         { method: "POST", body: data },
       );
       const videoData = await resp.json();
-
       await updateDoc(doc(db, "settings", "siteConfig"), {
         heroVideo: videoData.secure_url,
       });
-
       alert("Hero video updated!");
       setVideoFile(null);
     } catch (e) {
@@ -98,37 +121,11 @@ const Admin = () => {
     setLoading(false);
   };
 
-  // НОВАЯ ФУНКЦИЯ: Удаление видео
   const deleteVideo = async () => {
     if (window.confirm("Remove hero video?")) {
       await updateDoc(doc(db, "settings", "siteConfig"), { heroVideo: "" });
     }
   };
-
-  useEffect(() => {
-    const qProducts = query(
-      collection(db, "products"),
-      orderBy("createdAt", "desc"),
-    );
-    const unsubProducts = onSnapshot(qProducts, (snapshot) => {
-      setProducts(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-    });
-    const unsubCats = onSnapshot(collection(db, "categories"), (snapshot) => {
-      setCategories(
-        snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
-      );
-    });
-    const unsubColls = onSnapshot(collection(db, "collections"), (snapshot) => {
-      setCollectionsList(
-        snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
-      );
-    });
-    return () => {
-      unsubProducts();
-      unsubCats();
-      unsubColls();
-    };
-  }, []);
 
   const startEdit = (p) => {
     setEditingId(p.id);
@@ -183,10 +180,7 @@ const Admin = () => {
           data.append("upload_preset", UPLOAD_PRESET);
           const resp = await fetch(
             `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,
-            {
-              method: "POST",
-              body: data,
-            },
+            { method: "POST", body: data },
           );
           const imgData = await resp.json();
           uploadedUrls.push(imgData.secure_url);
@@ -288,7 +282,7 @@ const Admin = () => {
           : "available";
     await updateDoc(doc(db, "products", id), { status: nextStatus });
   };
-
+  
   return (
     <div className="min-h-screen bg-white pt-24 md:pt-40 px-4 md:px-8 max-w-[1000px] mx-auto font-mono pb-20 text-black">
       {/* TABS */}

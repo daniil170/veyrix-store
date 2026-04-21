@@ -36,11 +36,12 @@ const Hero = ({ videoUrl }) => {
       {/* Контент */}
       <div className="relative z-10 text-center px-4 flex flex-col items-center">
         
-        {/* ЛОГОТИП (Увеличен на 20% и увеличен отступ снизу) */}
+        {/* ЛОГОТИП (Сделан ЕЩЕ БОЛЬШЕ) */}
+        {/* w-72 (мобилки), md:w-[400px] (планшеты), lg:w-[500px] (ноутбуки и ПК) */}
         <img 
           src={`${baseUrl}logo.png`} 
           alt="Veyrix Logo" 
-          className="w-60 md:w-80 lg:w-96 mb-20 drop-shadow-md object-contain"
+          className="w-72 md:w-[400px] lg:w-[500px] mb-20 drop-shadow-md object-contain"
         />
 
         {/* Кнопка Shop All */}

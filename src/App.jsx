@@ -15,7 +15,6 @@ import {
   doc,
   getDoc,
   setDoc,
-  getDocs, // Добавлено для одноразовой загрузки
 } from "firebase/firestore";
 import Header from "./components/Header";
 import Hero from "./components/Hero";
@@ -45,6 +44,7 @@ function App() {
   // СОСТОЯНИЯ МАГАЗИНА
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
+  // ИСПРАВЛЕНИЕ: Ставим loading в true сразу, чтобы избежать вызова в useEffect
   const [loading, setLoading] = useState(true);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [activeImage, setActiveImage] = useState(null);
@@ -101,59 +101,32 @@ function App() {
     return () => unsubscribe();
   }, [view]);
 
-  // 3. ЗАГРУЗКА ДАННЫХ С УМНЫМ КЭШИРОВАНИЕМ
+  // 3. ГЛАВНЫЙ СЛУШАТЕЛЬ ДАННЫХ (ОБНОВЛЕНИЕ В РЕАЛЬНОМ ВРЕМЕНИ)
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const cachedProducts = localStorage.getItem("veyrix_products");
-        const cacheTimestamp = localStorage.getItem("veyrix_cache_time");
-        const now = new Date().getTime();
-
-        // Кэш живет 4 часа (1000 мс * 60 сек * 60 мин * 4 ч)
-        const CACHE_LIFETIME = 1000 * 60 * 60 * 4;
-
-        if (
-          cachedProducts &&
-          cacheTimestamp &&
-          now - parseInt(cacheTimestamp) < CACHE_LIFETIME
-        ) {
-          // Берем из памяти браузера (0 чтений базы)
-          setProducts(JSON.parse(cachedProducts));
-          setLoading(false);
-        } else {
-          // Качаем из базы и сохраняем в память
-          const q = query(
-            collection(db, "products"),
-            orderBy("createdAt", "desc"),
-          );
-          const snapshot = await getDocs(q);
-          const freshProducts = snapshot.docs.map((doc) => ({
-            id: doc.id,
-            ...doc.data(),
-          }));
-
-          localStorage.setItem(
-            "veyrix_products",
-            JSON.stringify(freshProducts),
-          );
-          localStorage.setItem("veyrix_cache_time", now.toString());
-
-          setProducts(freshProducts);
-          setLoading(false);
-        }
-
-        // Категории весят копейки, качаем их просто один раз без слушателя
-        const catSnapshot = await getDocs(collection(db, "categories"));
-        setCategories(
-          catSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
-        );
-      } catch (error) {
-        console.error("Fetch error:", error);
+    // Подписка на товары
+    const q = query(collection(db, "products"), orderBy("createdAt", "desc"));
+    const unsubProducts = onSnapshot(
+      q,
+      (snapshot) => {
+        const freshProducts = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+        setProducts(freshProducts);
+        setLoading(false); // Выключаем загрузку, когда получили данные
+      },
+      (error) => {
+        console.error("Firebase error:", error);
         setLoading(false);
-      }
-    };
+      },
+    );
 
-    fetchData();
+    // Подписка на категории
+    const unsubCats = onSnapshot(collection(db, "categories"), (snapshot) => {
+      setCategories(
+        snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+      );
+    });
 
     const handleHashChange = () => {
       const hash = window.location.hash;
@@ -173,7 +146,10 @@ function App() {
 
     window.addEventListener("hashchange", handleHashChange);
     handleHashChange();
+
     return () => {
+      unsubProducts();
+      unsubCats();
       window.removeEventListener("hashchange", handleHashChange);
     };
   }, []);
@@ -209,6 +185,7 @@ function App() {
     signOut(auth);
     setView("shop");
   };
+
   const handleResetPassword = async () => {
     if (!email) return alert("Please enter email.");
     try {
@@ -259,8 +236,7 @@ function App() {
     setActiveImage(null);
   };
 
-  // --- ЛОГИКА ПОРЯДКА ЭКРАНОВ ---
-
+  // --- ЭКРАН ЗАГРУЗКИ ---
   if (loading)
     return (
       <div className="min-h-screen flex items-center justify-center font-mono uppercase tracking-[0.5em] text-[10px]">
@@ -268,7 +244,7 @@ function App() {
       </div>
     );
 
-  // 1. Приоритет входу (чтобы зайти в админку во время тех. работ)
+  // --- ЭКРАН АВТОРИЗАЦИИ ---
   if (view === "auth") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-neutral-50 px-4 font-mono">
@@ -345,7 +321,7 @@ function App() {
     );
   }
 
-  // 2. Заглушка Maintenance
+  // --- ТЕХНИЧЕСКИЕ РАБОТЫ ---
   if (isMaintenance && !user) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-white p-6 text-center font-mono">
@@ -368,7 +344,7 @@ function App() {
     );
   }
 
-  // 3. Основной рендер
+  // --- ОСНОВНОЙ РЕНДЕР (МАГАЗИН / АДМИНКА) ---
   return (
     <main className="bg-white min-h-screen font-sans">
       {user && (
@@ -393,12 +369,14 @@ function App() {
               setVisibleCount(8);
             }}
             isArchiveMode={isArchiveMode}
+            activeCollection={activeCollection}
           />
           <Hero videoUrl={heroVideo} />
           <section
             id="catalog"
             className="max-w-[1400px] mx-auto py-16 md:py-32 px-4 md:px-6 min-h-[50vh]"
           >
+            {/* Панель фильтров */}
             <div className="mb-12 md:mb-20 flex flex-col md:flex-row items-start md:items-center justify-between border-b border-neutral-100 pb-8 relative gap-6 z-[100]">
               <h2 className="text-[14px] md:text-[16px] uppercase tracking-[0.6em] font-bold">
                 {isArchiveMode ? "Archive" : "Catalogue"}
@@ -474,6 +452,7 @@ function App() {
               </div>
             </div>
 
+            {/* Список товаров */}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-3 md:gap-x-8 gap-y-12 md:gap-y-20 relative z-10">
               {displayedProducts.map((product) => (
                 <div
@@ -494,7 +473,6 @@ function App() {
                         </div>
                       </div>
                     )}
-                    {/* ТУТ ИСПОЛЬЗУЕТСЯ ОПТИМИЗАЦИЯ КАРТИНКИ */}
                     <img
                       src={optimizeImage(product.image)}
                       className="w-full h-full object-cover transition-transform duration-[2s] group-hover:scale-105"
@@ -565,7 +543,6 @@ function App() {
               Close [x]
             </button>
             <div className="w-full md:w-3/5 bg-neutral-100 flex flex-col h-[55vh] md:h-auto shrink-0">
-              {/* ТУТ ТОЖЕ ИСПОЛЬЗУЕТСЯ ОПТИМИЗАЦИЯ КАРТИНКИ */}
               <img
                 src={optimizeImage(activeImage || selectedProduct.image)}
                 className="w-full h-full object-cover"

@@ -1,21 +1,26 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-@theme {
+/* Твои переменные будут доступны через var(--name) */
+:root {
   --color-veyrix-bg: #FFFFFF;
   --color-veyrix-text: #000000;
-  --color-veyrix-gray: #4A4A4A; /* Тот самый графитовый серый */
+  --color-veyrix-gray: #4A4A4A;
 }
 
 @layer base {
   body {
-    background-color: var(--color-veyrix-bg);
-    color: var(--color-veyrix-text);
-    @apply antialiased;
+    background-color: #FFFFFF; /* Прямое указание цвета для надежности */
+    color: #000000;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     margin: 0;
     padding: 0;
   }
 }
 
+/* Анимация остается без изменений */
 @keyframes slideLeft {
   from { transform: translateX(100%); }
   to { transform: translateX(0); }

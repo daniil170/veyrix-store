@@ -166,12 +166,13 @@ const Admin = () => {
     setLoading(true);
     try {
       let finalImages = editingId
-        ? products.find((p) => p.id === editingId).images
+        ? products.find((p) => p.id === editingId).images || []
         : [];
       let finalMainImage = editingId
-        ? products.find((p) => p.id === editingId).image
+        ? products.find((p) => p.id === editingId).image || ""
         : "";
 
+      // Если выбраны НОВЫЕ файлы
       if (files.length > 0) {
         const uploadedUrls = [];
         for (const file of files) {
@@ -185,16 +186,18 @@ const Admin = () => {
           const imgData = await resp.json();
           uploadedUrls.push(imgData.secure_url);
         }
+
+        // Если мы редактируем, можем либо заменить старые, либо добавить (сейчас заменяем на новые)
         finalImages = uploadedUrls;
-        finalMainImage = uploadedUrls[0];
+        finalMainImage = uploadedUrls[0]; // Первое фото всегда главное
       }
 
       const productData = {
         ...formData,
         price: Number(formData.price),
         oldPrice: formData.oldPrice ? Number(formData.oldPrice) : null,
-        image: finalMainImage,
-        images: finalImages,
+        image: finalMainImage, // Для превью в каталоге
+        images: finalImages, // Весь массив для слайдера в модалке
         updatedAt: Timestamp.now(),
       };
 
@@ -207,6 +210,7 @@ const Admin = () => {
           createdAt: Timestamp.now(),
         });
       }
+
       cancelEdit();
     } catch (error) {
       alert("Error: " + error.message);

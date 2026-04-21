@@ -65,6 +65,42 @@ function App() {
   const [isMaintenance, setIsMaintenance] = useState(false);
   const [heroVideo, setHeroVideo] = useState("");
 
+  // ФУНКЦИЯ СЛАЙДЕРА В МОДАЛЬНОМ ОКНЕ
+  const [touchStart, setTouchStart] = useState(null);
+  const [touchEnd, setTouchEnd] = useState(null);
+
+  // Минимальное расстояние для срабатывания свайпа (в пикселях)
+  const minSwipeDistance = 50;
+
+  const onTouchStart = (e) => {
+    setTouchEnd(null);
+    setTouchStart(e.targetTouches[0].clientX);
+  };
+
+  const onTouchMove = (e) => setTouchEnd(e.targetTouches[0].clientX);
+
+  const onTouchEnd = () => {
+    if (!touchStart || !touchEnd) return;
+    const distance = touchStart - touchEnd;
+    const isLeftSwipe = distance > minSwipeDistance;
+    const isRightSwipe = distance < -minSwipeDistance;
+
+    if (isLeftSwipe || isRightSwipe) {
+      const images = selectedProduct.images || [selectedProduct.image];
+      const currentIndex = images.indexOf(activeImage || selectedProduct.image);
+
+      if (isLeftSwipe) {
+        // Свайп влево — следующее фото
+        const nextIndex = (currentIndex + 1) % images.length;
+        setActiveImage(images[nextIndex]);
+      } else {
+        // Свайп вправо — предыдущее фото
+        const prevIndex = (currentIndex - 1 + images.length) % images.length;
+        setActiveImage(images[prevIndex]);
+      }
+    }
+  };
+
   // 1. СЕКРЕТНЫЕ КЛАВИШИ
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -538,15 +574,51 @@ function App() {
           <div className="relative bg-white w-full h-[95vh] md:h-auto md:max-w-[1000px] md:max-h-[90vh] overflow-y-auto flex flex-col md:flex-row shadow-2xl rounded-t-2xl md:rounded-none animate-slideUp">
             <button
               onClick={closeProduct}
-              className="absolute top-4 right-4 md:top-6 md:right-6 text-[9px] md:text-[10px] uppercase z-[510]"
+              className="absolute top-4 right-4 md:top-8 md:right-8 z-[510] bg-black text-white px-5 py-2.5 text-[10px] uppercase tracking-[0.2em] hover:bg-neutral-800 transition-all shadow-lg flex items-center gap-2"
             >
-              Close [x]
+              <span>Close</span>
+              <span className="text-[14px]">✕</span>
             </button>
-            <div className="w-full md:w-3/5 bg-neutral-100 flex flex-col h-[55vh] md:h-auto shrink-0">
+            {/* КОЛОНКА ГАЛЕРЕИ В МОДАЛЬНОМ ОКНЕ */}
+            <div
+              className="w-full md:w-3/5 bg-neutral-100 flex flex-col h-[65vh] md:h-auto shrink-0 relative overflow-hidden border-b md:border-b-0 md:border-r border-neutral-200"
+              onTouchStart={onTouchStart}
+              onTouchMove={onTouchMove}
+              onTouchEnd={onTouchEnd}
+            >
+              {/* ВЕРХНЯЯ ПАНЕЛЬ С КНОПКОЙ И МИНИАТЮРАМИ */}
+              <div className="absolute top-0 left-0 w-full p-4 md:p-6 flex justify-between items-start z-[510] pointer-events-none">
+                {/* МИНИАТЮРЫ (Слева) */}
+                {selectedProduct.images &&
+                  selectedProduct.images.length > 1 && (
+                    <div className="flex gap-2 pointer-events-auto">
+                      {selectedProduct.images.map((img, idx) => (
+                        <div
+                          key={idx}
+                          onClick={() => setActiveImage(img)}
+                          className={`w-12 h-12 md:w-16 md:h-16 border-2 cursor-pointer transition-all bg-white p-0.5 shadow-sm ${
+                            (activeImage || selectedProduct.image) === img
+                              ? "border-black scale-105"
+                              : "border-transparent opacity-60 hover:opacity-100"
+                          }`}
+                        >
+                          <img
+                            src={optimizeImage(img)}
+                            className="w-full h-full object-cover"
+                            alt=""
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+              </div>
+
+              {/* ГЛАВНОЕ ФОТО */}
               <img
                 src={optimizeImage(activeImage || selectedProduct.image)}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover select-none"
                 alt=""
+                draggable="false"
               />
             </div>
             <div className="w-full md:w-2/5 p-6 md:p-12 flex flex-col">

@@ -9,6 +9,8 @@ const Header = ({
   onArchiveToggle,
   isArchiveMode,
   activeCollection,
+  tickerText,
+  tickerActive,
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
@@ -71,7 +73,7 @@ const Header = ({
   return (
     <>
       <header
-        className={`fixed top-0 left-0 w-full z-[200] transition-all duration-700 bg-white border-b border-neutral-100 ${isVisible ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0"}`}
+        className={`fixed top-0 left-0 w-full z-[200] transition-all duration-700 bg-white ${tickerActive ? "" : "border-b border-neutral-100"} ${isVisible ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0"}`}
       >
         <div className="max-w-[1440px] mx-auto px-6 py-8 md:py-10 flex items-center justify-between relative overflow-hidden">
           <button
@@ -128,6 +130,26 @@ const Header = ({
             </button>
           </div>
         </div>
+        {tickerActive && tickerText && (
+          <div className="w-full bg-black text-white py-2 overflow-hidden relative z-[190] flex whitespace-nowrap">
+            <div className="animate-marquee flex gap-32 text-[10px] uppercase tracking-[0.2em] font-bold shrink-0 min-w-full justify-around pr-32">
+              <span>{tickerText}</span>
+              <span>{tickerText}</span>
+              <span>{tickerText}</span>
+              <span>{tickerText}</span>
+              <span>{tickerText}</span>
+              <span>{tickerText}</span>
+            </div>
+            <div className="animate-marquee flex gap-32 text-[10px] uppercase tracking-[0.2em] font-bold shrink-0 min-w-full justify-around pr-32" aria-hidden="true">
+              <span>{tickerText}</span>
+              <span>{tickerText}</span>
+              <span>{tickerText}</span>
+              <span>{tickerText}</span>
+              <span>{tickerText}</span>
+              <span>{tickerText}</span>
+            </div>
+          </div>
+        )}
       </header>
 
       <div

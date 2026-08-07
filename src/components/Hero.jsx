@@ -60,9 +60,6 @@ const Hero = ({ videoUrl }) => {
         </button>
       </div>
 
-      <div className="absolute bottom-10 left-1/2 -translate-x-1/2 animate-bounce opacity-50 hidden md:block">
-        <div className="w-[1px] h-12 bg-white"></div>
-      </div>
     </section>
   );
 };

@@ -16,6 +16,11 @@ import {
 const Admin = () => {
   const [isMaintenance, setIsMaintenance] = useState(false);
   const [heroVideo, setHeroVideo] = useState("");
+  const [countdownActive, setCountdownActive] = useState(false);
+  const [dropDate, setDropDate] = useState("");
+  const [blurActive, setBlurActive] = useState(false);
+  const [tickerActive, setTickerActive] = useState(false);
+  const [tickerText, setTickerText] = useState("");
   const [videoFile, setVideoFile] = useState(null);
   const [tab, setTab] = useState("inventory");
   const [products, setProducts] = useState([]);
@@ -51,8 +56,14 @@ const Admin = () => {
       doc(db, "settings", "siteConfig"),
       (docSnap) => {
         if (docSnap.exists()) {
-          setIsMaintenance(docSnap.data().isMaintenance);
-          setHeroVideo(docSnap.data().heroVideo || "");
+          const data = docSnap.data();
+          setIsMaintenance(data.isMaintenance);
+          setHeroVideo(data.heroVideo || "");
+          setCountdownActive(data.countdownActive || false);
+          setDropDate(data.dropDate || "");
+          setBlurActive(data.blurActive || false);
+          setTickerActive(data.tickerActive || false);
+          setTickerText(data.tickerText || "");
         }
       },
     );
@@ -98,6 +109,22 @@ const Admin = () => {
     }
   };
 
+  const saveDropSettings = async () => {
+    setLoading(true);
+    try {
+      const configRef = doc(db, "settings", "siteConfig");
+      await setDoc(
+        configRef,
+        { countdownActive, dropDate, blurActive, tickerActive, tickerText },
+        { merge: true },
+      );
+      alert("Drop settings saved!");
+    } catch (e) {
+      alert(e.message);
+    }
+    setLoading(false);
+  };
+
   const handleVideoUpload = async () => {
     if (!videoFile) return alert("Please select a video file!");
     setLoading(true);
@@ -110,6 +137,8 @@ const Admin = () => {
         { method: "POST", body: data },
       );
       const videoData = await resp.json();
+      if (!resp.ok) throw new Error(videoData.error?.message || "Video upload failed");
+      
       await updateDoc(doc(db, "settings", "siteConfig"), {
         heroVideo: videoData.secure_url,
       });
@@ -184,20 +213,22 @@ const Admin = () => {
             { method: "POST", body: data },
           );
           const imgData = await resp.json();
+          if (!resp.ok) throw new Error(imgData.error?.message || "Image upload failed");
+          
           uploadedUrls.push(imgData.secure_url);
         }
 
         // Если мы редактируем, можем либо заменить старые, либо добавить (сейчас заменяем на новые)
         finalImages = uploadedUrls;
-        finalMainImage = uploadedUrls[0]; // Первое фото всегда главное
+        finalMainImage = uploadedUrls[0] || ""; // Первое фото всегда главное
       }
 
       const productData = {
         ...formData,
         price: Number(formData.price),
         oldPrice: formData.oldPrice ? Number(formData.oldPrice) : null,
-        image: finalMainImage, // Для превью в каталоге
-        images: finalImages, // Весь массив для слайдера в модалке
+        image: finalMainImage || "", // Для превью в каталоге
+        images: finalImages || [], // Весь массив для слайдера в модалке
         updatedAt: Timestamp.now(),
       };
 
@@ -508,6 +539,63 @@ const Admin = () => {
                 className={`px-10 py-4 text-[10px] uppercase font-bold tracking-[0.2em] transition-all ${isMaintenance ? "bg-orange-500 text-white" : "bg-black text-white"}`}
               >
                 {isMaintenance ? "Disable Maintenance" : "Enable Maintenance"}
+              </button>
+            </div>
+          </div>
+
+          {/* НОВЫЙ БЛОК: DROP CONTROL */}
+          <div className="p-6 border-2 border-neutral-100 bg-neutral-50 flex flex-col gap-4">
+            <h3 className="text-[11px] uppercase tracking-[0.4em] mb-2 font-bold text-black">
+              Drop & Ticker Control
+            </h3>
+            <div className="flex flex-col gap-4">
+              <label className="flex items-center gap-4 text-[10px] uppercase font-bold">
+                <input 
+                  type="checkbox" 
+                  checked={countdownActive} 
+                  onChange={(e) => setCountdownActive(e.target.checked)} 
+                  className="w-4 h-4"
+                />
+                Countdown Timer Active
+              </label>
+              <input
+                type="datetime-local"
+                value={dropDate}
+                onChange={(e) => setDropDate(e.target.value)}
+                className="border border-neutral-200 px-4 py-3 text-[12px] uppercase outline-none"
+              />
+
+              <label className="flex items-center gap-4 text-[10px] uppercase font-bold mt-4">
+                <input 
+                  type="checkbox" 
+                  checked={blurActive} 
+                  onChange={(e) => setBlurActive(e.target.checked)} 
+                  className="w-4 h-4"
+                />
+                Blur Products
+              </label>
+
+              <label className="flex items-center gap-4 text-[10px] uppercase font-bold mt-4">
+                <input 
+                  type="checkbox" 
+                  checked={tickerActive} 
+                  onChange={(e) => setTickerActive(e.target.checked)} 
+                  className="w-4 h-4"
+                />
+                Scrolling Ticker Active
+              </label>
+              <input
+                placeholder="Ticker Text"
+                value={tickerText}
+                onChange={(e) => setTickerText(e.target.value)}
+                className="border border-neutral-200 px-4 py-3 text-[12px] uppercase outline-none"
+              />
+              <button
+                onClick={saveDropSettings}
+                disabled={loading}
+                className="bg-black text-white py-3 text-[10px] uppercase mt-2 w-fit px-8"
+              >
+                {loading ? "Saving..." : "Save Settings"}
               </button>
             </div>
           </div>

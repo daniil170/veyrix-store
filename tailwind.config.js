@@ -13,6 +13,15 @@ export default {
       },
       letterSpacing: {
         'very-wide': '0.4em',
+      },
+      keyframes: {
+        marquee: {
+          '0%': { transform: 'translateX(0%)' },
+          '100%': { transform: 'translateX(-50%)' },
+        }
+      },
+      animation: {
+        marquee: 'marquee 15s linear infinite',
       }
     },
   },

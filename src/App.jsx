@@ -64,6 +64,14 @@ function App() {
   // ФУНКЦИЯ ТЕХ. ОБСЛУЖИВАНИЯ
   const [isMaintenance, setIsMaintenance] = useState(false);
   const [heroVideo, setHeroVideo] = useState("");
+  
+  // DROP SETTINGS
+  const [countdownActive, setCountdownActive] = useState(false);
+  const [dropDate, setDropDate] = useState("");
+  const [blurActive, setBlurActive] = useState(false);
+  const [tickerActive, setTickerActive] = useState(false);
+  const [tickerText, setTickerText] = useState("");
+  const [timeLeft, setTimeLeft] = useState(null);
 
   // ФУНКЦИЯ СЛАЙДЕРА В МОДАЛЬНОМ ОКНЕ
   const [touchStart, setTouchStart] = useState(null);
@@ -110,17 +118,47 @@ function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Слушатель тех. обслуживания
+  // Слушатель тех. обслуживания и дропа
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "settings", "siteConfig"), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setIsMaintenance(data.isMaintenance || false);
         setHeroVideo(data.heroVideo || "");
+        setCountdownActive(data.countdownActive || false);
+        setDropDate(data.dropDate || "");
+        setBlurActive(data.blurActive || false);
+        setTickerActive(data.tickerActive || false);
+        setTickerText(data.tickerText || "");
       }
     });
     return () => unsub();
   }, []);
+
+  // Таймер дропа
+  useEffect(() => {
+    if (!countdownActive || !dropDate) {
+      setTimeLeft(null);
+      return;
+    }
+    const interval = setInterval(() => {
+      const now = new Date().getTime();
+      const target = new Date(dropDate).getTime();
+      const diff = target - now;
+      if (diff <= 0) {
+        setTimeLeft({ d: 0, h: 0, m: 0, s: 0 });
+        clearInterval(interval);
+      } else {
+        setTimeLeft({
+          d: Math.floor(diff / (1000 * 60 * 60 * 24)),
+          h: Math.floor((diff / (1000 * 60 * 60)) % 24),
+          m: Math.floor((diff / 1000 / 60) % 60),
+          s: Math.floor((diff / 1000) % 60)
+        });
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [countdownActive, dropDate]);
 
   // 2. СЛУШАТЕЛЬ АВТОРИЗАЦИИ
   useEffect(() => {
@@ -406,6 +444,8 @@ function App() {
             }}
             isArchiveMode={isArchiveMode}
             activeCollection={activeCollection}
+            tickerText={tickerText}
+            tickerActive={tickerActive}
           />
           <Hero videoUrl={heroVideo} />
           <section
@@ -489,40 +529,57 @@ function App() {
             </div>
 
             {/* Список товаров */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-3 md:gap-x-8 gap-y-12 md:gap-y-20 relative z-10">
-              {displayedProducts.map((product) => (
-                <div
-                  key={product.id}
-                  className="group cursor-pointer"
-                  onClick={() => setSelectedProduct(product)}
-                >
-                  <div className="aspect-[3/4] bg-neutral-50 overflow-hidden mb-4 relative">
-                    {product.status === "low_stock" && (
-                      <div className="absolute top-0 left-0 right-0 z-20 bg-black text-white text-center py-1.5 text-[7px] uppercase tracking-[0.3em]">
-                        Limited Stock
-                      </div>
-                    )}
-                    {product.status === "sold_out" && (
-                      <div className="absolute inset-0 z-20 bg-white/40 backdrop-blur-[2px] flex items-center justify-center">
-                        <div className="border border-black px-4 py-2 bg-white/90 text-[10px] uppercase tracking-[0.4em] font-bold">
-                          Archive
+            <div className="relative z-10">
+              {countdownActive && !isArchiveMode && (
+                <div className="absolute inset-0 z-50 flex items-start mt-20 justify-center pointer-events-none">
+                  {timeLeft && (
+                     <div className="flex flex-col items-center gap-4 animate-fadeIn pointer-events-auto text-black">
+                        <span className="text-[12px] uppercase tracking-[0.4em] font-bold">Dropping In</span>
+                        <div className="flex gap-6 font-mono">
+                          <div className="flex flex-col items-center"><span className="text-3xl md:text-5xl">{String(timeLeft.d).padStart(2, '0')}</span><span className="text-[8px] tracking-[0.2em] text-neutral-500 mt-1">DAYS</span></div>
+                          <div className="flex flex-col items-center"><span className="text-3xl md:text-5xl">{String(timeLeft.h).padStart(2, '0')}</span><span className="text-[8px] tracking-[0.2em] text-neutral-500 mt-1">HRS</span></div>
+                          <div className="flex flex-col items-center"><span className="text-3xl md:text-5xl">{String(timeLeft.m).padStart(2, '0')}</span><span className="text-[8px] tracking-[0.2em] text-neutral-500 mt-1">MIN</span></div>
+                          <div className="flex flex-col items-center"><span className="text-3xl md:text-5xl">{String(timeLeft.s).padStart(2, '0')}</span><span className="text-[8px] tracking-[0.2em] text-neutral-500 mt-1">SEC</span></div>
                         </div>
-                      </div>
-                    )}
-                    <img
-                      src={optimizeImage(product.image)}
-                      className="w-full h-full object-cover transition-transform duration-[2s] group-hover:scale-105"
-                      alt=""
-                    />
-                  </div>
-                  <h3 className="text-[10px] uppercase tracking-[0.2em] font-bold">
-                    {product.name}
-                  </h3>
-                  <p className="text-[11px] font-light mt-1">
-                    $ {product.price}.00
-                  </p>
+                     </div>
+                  )}
                 </div>
-              ))}
+              )}
+              <div className={`grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-3 md:gap-x-8 gap-y-12 md:gap-y-20 transition-all duration-1000 ${blurActive && !isArchiveMode ? "blur-xl pointer-events-none opacity-50 select-none grayscale" : ""}`}>
+                {displayedProducts.map((product) => (
+                  <div
+                    key={product.id}
+                    className="group cursor-pointer"
+                    onClick={() => setSelectedProduct(product)}
+                  >
+                    <div className="aspect-[3/4] bg-neutral-50 overflow-hidden mb-4 relative">
+                      {product.status === "low_stock" && (
+                        <div className="absolute top-0 left-0 right-0 z-20 bg-black text-white text-center py-1.5 text-[7px] uppercase tracking-[0.3em]">
+                          Limited Stock
+                        </div>
+                      )}
+                      {product.status === "sold_out" && (
+                        <div className="absolute inset-0 z-20 bg-white/40 backdrop-blur-[2px] flex items-center justify-center">
+                          <div className="border border-black px-4 py-2 bg-white/90 text-[10px] uppercase tracking-[0.4em] font-bold">
+                            Archive
+                          </div>
+                        </div>
+                      )}
+                      <img
+                        src={optimizeImage(product.image)}
+                        className="w-full h-full object-cover transition-transform duration-[2s] group-hover:scale-105"
+                        alt=""
+                      />
+                    </div>
+                    <h3 className="text-[10px] uppercase tracking-[0.2em] font-bold">
+                      {product.name}
+                    </h3>
+                    <p className="text-[11px] font-light mt-1">
+                      $ {product.price}.00
+                    </p>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {displayedProducts.length === 0 && (

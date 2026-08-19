@@ -534,7 +534,7 @@ function App() {
                 <div className="absolute inset-0 z-50 flex items-start mt-20 justify-center pointer-events-none">
                   {timeLeft && (
                      <div className="flex flex-col items-center gap-4 animate-fadeIn pointer-events-auto text-black">
-                        <span className="text-[12px] uppercase tracking-[0.4em] font-bold">Dropping In</span>
+                        <span className="text-[12px] uppercase tracking-[0.4em] font-bold">Releasing In</span>
                         <div className="flex gap-6 font-mono">
                           <div className="flex flex-col items-center"><span className="text-3xl md:text-5xl">{String(timeLeft.d).padStart(2, '0')}</span><span className="text-[8px] tracking-[0.2em] text-neutral-500 mt-1">DAYS</span></div>
                           <div className="flex flex-col items-center"><span className="text-3xl md:text-5xl">{String(timeLeft.h).padStart(2, '0')}</span><span className="text-[8px] tracking-[0.2em] text-neutral-500 mt-1">HRS</span></div>
